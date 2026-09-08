@@ -12,14 +12,14 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { FilePenIcon, PlusIcon, TrashIcon } from "lucide-react";
-import { format } from "date-fns"; 
-
-type Expense = {
-  id: number;
-  name: string;
-  amount: number;
-  date: Date;
-};
+import { format } from "date-fns";
+import {
+  calculateTotal,
+  isValidDraft,
+  nextExpenseId,
+  parseStoredExpenses,
+  type Expense,
+} from "@/lib/expense-utils";
 
 const initialExpenses: Expense[] = [
   { id: 1, name: "Groceries", amount: 300, date: new Date("2024-05-15") },
@@ -34,19 +34,15 @@ export default function ExpenseTrackerComponent() {
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [currentExpenseId, setCurrentExpenseId] = useState<number | null>(null);
   const [newExpense, setNewExpense] = useState<{ name: string; amount: string; date: Date; }>({ name: "", amount: "", date: new Date() });
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     const storedExpenses = localStorage.getItem("expenses");
-    if (storedExpenses) {
-      setExpenses(
-        JSON.parse(storedExpenses).map((expense: Expense) => ({
-          ...expense,
-          date: new Date(expense.date),
-        }))
-      );
-    } else {
-      setExpenses(initialExpenses);
-    }
+    // parseStoredExpenses returns null for missing/corrupt data, so a
+    // tampered or malformed localStorage value degrades to the starter
+    // list instead of throwing an unhandled error on load.
+    const parsed = storedExpenses ? parseStoredExpenses(storedExpenses) : null;
+    setExpenses(parsed ?? initialExpenses);
   }, []);
 
   useEffect(() => {
@@ -56,7 +52,19 @@ export default function ExpenseTrackerComponent() {
   }, [expenses]);
 
   const handleAddExpense = (): void => {
-    setExpenses([...expenses, { id: expenses.length + 1, name: newExpense.name, amount: parseFloat(newExpense.amount), date: new Date(newExpense.date), }]);
+    if (!isValidDraft(newExpense)) {
+      setFormError("Enter a name and an amount greater than 0.");
+      return;
+    }
+    setExpenses([
+      ...expenses,
+      {
+        id: nextExpenseId(expenses),
+        name: newExpense.name,
+        amount: parseFloat(newExpense.amount),
+        date: new Date(newExpense.date),
+      },
+    ]);
     resetForm();
     setShowModal(false);
   };
@@ -72,6 +80,10 @@ export default function ExpenseTrackerComponent() {
   };
 
   const handleSaveEditExpense = (): void => {
+    if (!isValidDraft(newExpense)) {
+      setFormError("Enter a name and an amount greater than 0.");
+      return;
+    }
     setExpenses(
       expenses.map((expense) =>
         expense.id === currentExpenseId
@@ -87,13 +99,14 @@ export default function ExpenseTrackerComponent() {
     setNewExpense({ name: "", amount: "", date: new Date() });
     setIsEditing(false);
     setCurrentExpenseId(null);
+    setFormError(null);
   };
 
   const handleDeleteExpense = (id: number): void => {
     setExpenses(expenses.filter((expense) => expense.id !== id));
   };
 
-  const totalExpenses = expenses.reduce((total, expense) => total + expense.amount, 0);
+  const totalExpenses = calculateTotal(expenses);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const { id, value } = e.target;
@@ -157,6 +170,7 @@ export default function ExpenseTrackerComponent() {
     <Label htmlFor="date" className="text-gray-300">Date</Label>
     <Input id="date" type="date" value={newExpense.date.toISOString().slice(0, 10)} onChange={handleInputChange} className="bg-gray-700 text-white" />
   </div>
+  {formError && <p className="text-red-400 text-sm">{formError}</p>}
 </div>
 
           <DialogFooter>
